@@ -18,6 +18,7 @@ class ConnectFourGameSession:
         self.players = [player1, None]
         self.game_board = [[0 for _ in range(7)] for _ in range(6)]
         self.game_active = False  # Indicates whether the game is active
+        self.game_session_active = False
         
     def add_player(self, player2_socket):
         if self.players[1] is None:
@@ -29,7 +30,9 @@ class ConnectFourGameSession:
         
     def activateGame(self):
         lock.acquire()
+        
         self.game_active = True
+        self.game_session_active = True
         # Notify both players that the game has started
         
         current_player = self.players[0]
@@ -63,62 +66,109 @@ class ConnectFourGameSession:
             self.moves(current_move,symbol)
             
             current_player = other_player
-            
+        board_json = json.dumps(self.game_board)    
         winnerSocket = f"HOST_PLAYER_WON {self.game_board}" if current_player == self.players[1] else f"JOINING_PLAYER_WON {self.game_board}"
         
         self.players[0].sendall(f"{winnerSocket}".encode()) 
         self.players[1].sendall(f"{winnerSocket}".encode()) 
         
-        self.endgameSequence()
         
+#Taken out due to odd results
+        """
+        while True:
+            try:
+                player1_response = self.players[0].recv(2048).decode()
+                player2_response = self.players[1].recv(2048).decode()  
+                print("recieved responses")
+                break
             
+            except Exception as e:
+                pass
+            
+        
+        print("reaches end sequence response")
+        
+        if player1_response == "AGAIN_ACCEPTED" and player2_response == "AGAIN_ACCEPTED":
+             print("again accpted")
+             self.game_board = [[0 for _ in range(7)] for _ in range(6)] 
+             self.players[0].sendall("RESET".encode())
+             self.players[1].sendall("RESET".encode()) 
+             self.activateGame()
+        else:
+             print("forced cancel")
+             self.players[0].sendall("FORCED_CANCEL".encode()) 
+             self.players[1].sendall("FORCED_CANCEL".encode()) 
+             self.game_session_active = False
+             self.remove_game()
+        """
+        self.game_session_active = False
+        
+        
+    def remove_game(self, game):
+        if game in self.active_games:
+            self.active_games.remove(game)
+                
     def moves(self, column, symbol):
+        
         for row in range(len(self.game_board) - 1, -1, -1):           
             if self.game_board[row][column] == 0:
                 self.game_board[row][column] = symbol
-                currentWinCheck = self.winCheck(self)
-                if currentWinCheck is not None:                    
-                    self.game_active == False
-                    return 
+                currentWinCheck = self.winCheck()
+                if currentWinCheck is not None:
+                    print("wincheck hit", currentWinCheck)
+                    self.print_board(self.game_board)
+                    self.game_active = False
+                     
+                break
         return 
+
+    def print_board(self,board):
+        for row in board:
+            print(" ".join(str(cell) for cell in row))
     
-    def winCheck(self, game):
-        # Check horizontal lines
-       for row in self.game_board:
+    
+    def winCheck(self):
+        
+       for symbol in [1,2]:
+            # Check horizontal lines
+           for row in self.game_board:
+               for col in range(4):
+                   if row[col] == row[col + 1] == row[col + 2] == row[col + 3] == symbol:
+                       print("H hit")
+                       return symbol
+    
+           # Check vertical lines
+           for col in range(7):
+               for row in range(3):
+                   if ( self.game_board[row][col] == self.game_board[row + 1][col] == 
+                       self.game_board[row + 2][col] == self.game_board[row + 3][col] == symbol):
+                       print("V hit")
+                       return symbol
+    
+           # Check diagonal (down-right and up-right)
            for col in range(4):
-               if row[col] != 0 and row[col] == row[col + 1] == row[col + 2] == row[col + 3]:
-                   return row[col]
+               for row in range(6):
+                   # Down-right
+                   if (row < 3 and self.game_board[row][col] == 
+                       self.game_board[row + 1][col + 1] == 
+                       self.game_board[row + 2][col + 2] == 
+                       self.game_board[row + 3][col + 3] == symbol ):
+                       print("D hit")
 
-       # Check vertical lines
-       for col in range(7):
-           for row in range(3):
-               if self.game_board[row][col] != 0 and self.game_board[row][col] == self.game_board[row + 1][col] == self.game_board[row + 2][col] == self.game_board[row + 3][col]:
-                   return self.game_board[row][col]
+                       return symbol
+                   # Up-right
+                   if ( row > 2 and self.game_board[row][col] == 
+                        self.game_board[row - 1][col + 1] == 
+                        self.game_board[row - 2][col + 2] ==
+                        self.game_board[row - 3][col + 3] == symbol):
+                       print("D hit")
 
-       # Check diagonal (down-right and up-right)
-       for col in range(4):
-           for row in range(6):
-               # Down-right
-               if row < 3 and self.game_board[row][col] != 0 and self.game_board[row][col] == self.game_board[row + 1][col + 1] == self.game_board[row + 2][col + 2] == self.game_board[row + 3][col + 3]:
-                   return self.game_board[row][col]
-               # Up-right
-               if row > 2 and self.game_board[row][col] != 0 and self.game_board[row][col] == self.game_board[row - 1][col + 1] == self.game_board[row - 2][col + 2] == self.game_board[row - 3][col + 3]:
-                   return self.game_board[row][col]
-
+                       return symbol
+    
        # No winner yet
        return None
           
                 
-    def endgameSequence(self):        
-      if self.players[0].recv(2048).decode() == "AGAIN_ACCEPTED" and self.players[1].recv(2048).decode() == "AGAIN_ACCEPTED":
-           self.game_board = [[0 for _ in range(7)] for _ in range(6)] 
-           self.players[0].sendall("RESET".encode()) 
-           self.activateGame(self)
-      elif self.players[0].recv(2048).decode() == "CANCELGAME" or self.players[1].recv(2048).decode() == "CANCELGAME":
-           self.players[0].sendall("FORCED_CANCEL".encode()) 
-           self.players[1].sendall("FORCED_CANCEL".encode()) 
-           self.game_active = False
-           server.remove_game(self)
     
         
 class ConnectFourServer:
@@ -161,10 +211,6 @@ class ConnectFourServer:
        return False    
         
     
-    def remove_game(self, game):
-        if game in self.active_games:
-            self.active_games.remove(game)
-    
     def player_joined(self, player):
         return True if player != None else False
     
@@ -195,6 +241,7 @@ class ConnectFourServer:
     def exitGame(self, clientsocket):
         clientsocket.close() 
         print(f"Closed Connection with client: {clientsocket}")
+        self.newThread.close()
     
     
     def respond(self,clientsocket, address, clientData):
@@ -227,8 +274,13 @@ class ConnectFourServer:
     def clientThread(self, clientsocket, address):
         while True:
             if len(self.activeGames) != 0:
-                if self.activeGames[0].game_active:
-                    #print("Continuing")
+                
+                for game in self.activeGames:
+                    if game.players[0] == clientsocket or game.players[1] == clientsocket:
+                        break
+                    
+                if game.game_session_active :
+                    
                     continue
            
             try:
